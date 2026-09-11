@@ -52,7 +52,8 @@ def recognition() -> str:
 
 # Структура реального ответа SpeechKit (прогон пользователя 11.09.2026, русская речь, model general,
 # language_code auto, literature_text true): final по ~30 с, текст без пунктуации, normalizedText
-# совпадает с final, languages — распределение вероятностей по всем языкам модели.
+# совпадает с final, languages — распределение вероятностей; набор языков в нём непостоянен
+# (в этом ответе 13 записей с kk-KK, в английском — 12 без него и без ru-RU).
 REAL_LANGS = [{"languageCode": "en-EN", "probability": 0.024626730009913445},
               {"languageCode": "fi-FI", "probability": 0.0006043262546882033},
               {"languageCode": "uz-UZ", "probability": 0.00018773830379359424},
@@ -105,9 +106,13 @@ EN_LANGS = [{"languageCode": "en-EN", "probability": 0.8273805379867554},
             {"languageCode": "fi-FI", "probability": 0.005933984648436308},
             {"languageCode": "uz-UZ", "probability": 0.018049420788884163},
             {"languageCode": "pl-PL", "probability": 0.006268632598221302},
+            {"languageCode": "nl-NL", "probability": 0.009378643706440926},
+            {"languageCode": "pt-PT", "probability": 0.019187772646546364},
             {"languageCode": "de-DE", "probability": 0.02091861143708229},
             {"languageCode": "fr-FR", "probability": 0.028571778908371925},
+            {"languageCode": "tr-TR", "probability": 0.005621980410069227},
             {"languageCode": "es-ES", "probability": 0.022529007866978645},
+            {"languageCode": "sv-SV", "probability": 0.014755155891180038},
             {"languageCode": "it-IT", "probability": 0.021404489874839783}]
 EN_FINALS = [
     (0, 59800, [("all", 440, 500), ("right", 1199, 1490), ("so", 1760, 1890), ("whenever", 1939, 2379),
@@ -162,14 +167,17 @@ EN_FINALS = [
 ]
 
 
+REAL_RUNS = {"ru": (REAL_LANGS, REAL_FINALS), "en": (EN_LANGS, EN_FINALS)}
+
+
 def recognition_real() -> str:
     """Ответ в том виде, в каком его вернул сервис на реальном прогоне."""
     parts = []
     uuid = {"uuid": "3cd39f47-d39d238a-ce9ebb90-36b45de8", "userRequestId": "undefined"}
-    english = REAL["variant"] == "en"
-    for i, (s, e, ws) in enumerate(EN_FINALS if english else REAL_FINALS):
+    langs, finals = REAL_RUNS[REAL["variant"]]
+    for i, (s, e, ws) in enumerate(finals):
         alt = {"words": words(ws), "text": " ".join(w for w, _, _ in ws), "startTimeMs": str(s),
-               "endTimeMs": str(e), "confidence": 0, "languages": EN_LANGS if english else REAL_LANGS}
+               "endTimeMs": str(e), "confidence": 0, "languages": langs}
         cur = {"receivedDataMs": "60000", "resetTimeMs": "0", "partialTimeMs": str(e),
                "finalTimeMs": str(e), "finalIndex": str(i), "eouTimeMs": str(s)}
         base = {"sessionUuid": uuid, "audioCursors": cur, "responseWallTimeMs": "1830", "channelTag": "0"}
@@ -200,7 +208,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             dur = 0.1 * len(body["text"])
             for h in body["hints"]:
                 if "duration" in h and h["duration"]["policy"] == "MAX_DURATION":
-                    dur = min(dur, int(h["duration"]["durationMs"]) / 1000)
+                    limit = int(h["duration"]["durationMs"]) / 1000
+                    # реальный сервис лимит не гарантирует: на прогоне 11.09.2026 одна фраза
+                    # из пяти вернулась на 0,9 % длиннее запрошенного
+                    dur = min(dur, limit) * 1.009 if dur > limit else dur
             pcm = tone(dur); half = len(pcm) // 4 * 2
             chunks = [{"result": {"audioChunk": {"data": base64.b64encode(p).decode()}}} for p in (pcm[:half], pcm[half:])]
             return self.reply(200, pretty(*chunks))
@@ -310,9 +321,9 @@ buf = io.StringIO()
 with contextlib.redirect_stdout(buf):
     ce.main()
 out_env = buf.getvalue()
-check("ffmpeg вне PATH не блокирует: печатаются способ добавить и обе команды прогона",
-      "НЕТ  ffmpeg виден в PATH" in out_env and "--max-speed 3" in out_env
-      and out_env.count("yandex_video_translate.py \"") == 2 and "stt_raw.txt" in out_env,
+check("ffmpeg вне PATH не блокирует: печатаются способ добавить и команда прогона без платных излишков",
+      "НЕТ  ffmpeg виден в PATH" in out_env and "--max-speed" not in out_env
+      and out_env.count("yandex_video_translate.py \"") == 1 and "stt_raw.txt" in out_env,
       [l for l in out_env.splitlines() if "PATH" in l])
 
 print("1.2 Реальные форматы ответа SpeechKit (прогон 11.09.2026)")
@@ -352,8 +363,14 @@ try:
     segs_en, lang_en = yv.stt_result("op-1", KEY, None, HERE / "real_raw_en.txt")
 finally:
     REAL.update(on=False, variant="ru")
-check("английская речь: язык en 0,83; один final на все 60 с — нарезка зависит от пауз, а не от шага 30 с",
-      lang_en == "en" and len(EN_FINALS) == 1 and segs_en[-1]["end"] == 59.8, (lang_en, len(segs_en)))
+finals_en = [o for o in yv.iter_json((HERE / "real_raw_en.txt").read_bytes().decode("utf-8"))
+             if o.get("result", {}).get("final")]
+check("английская речь: язык en 0,83 из 12 языков; один final на все 59,8 с вместо двух по 30 с",
+      lang_en == "en" and len(finals_en) == 1
+      and len(finals_en[0]["result"]["final"]["alternatives"][0]["languages"]) == 12
+      and round(segs_en[-1]["end"], 2) == 59.8 and len(segs_en) == 5
+      and max(s["end"] - s["start"] for s in segs_en) <= yv.MAX_SEG + 1.0,
+      (lang_en, len(finals_en), [(round(s["start"], 2), round(s["end"], 2)) for s in segs_en]))
 en_text = " ".join(s["text"] for s in segs_en)
 check("английская речь тоже приходит без пунктуации и без заглавных, несмотря на literature_text",
       en_text.startswith("all right so whenever you look at the palaces")
@@ -432,7 +449,8 @@ check("отчёт о подгонке: 2 фразы, окно 2000 мс, лим�
       fit["max_speed"] == 1.5
       and [(f["phrase"], f["chars"], f["window_ms"], f["requested_ms"], f["before_trimmed_ms"]) for f in ph]
       == [(1, 30, 2000, 2000, 3000), (2, 40, 2000, 2666, 4000)]
-      and all(0 < f["after_trimmed_ms"] <= f["after_ms"] <= f["requested_ms"] for f in ph), ph)
+      and all(0 < f["after_trimmed_ms"] <= f["after_ms"] <= f["requested_ms"] * 1.01 for f in ph)
+      and any(f["after_ms"] > f["requested_ms"] for f in ph), ph)
 st = streams(out)
 a = [x for x in st if x["codec_type"] == "audio"]
 check("выход: h264 без перекодирования + 2 дорожки rus/eng", st[0]["codec_name"] == "h264" and len(a) == 2

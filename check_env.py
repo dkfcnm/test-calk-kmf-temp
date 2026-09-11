@@ -120,10 +120,7 @@ def next_steps(tools: Path, in_path: bool, fragment: Path | None = None) -> None
     if not fragment:
         log(f'  {PY} {SELF} --cut "ваша лекция.mp4"')
     log(f'  {PY} yandex_video_translate.py {src} --fast')
-    # тот же рабочий каталог: распознавание, перевод и базовая озвучка берутся из кэша,
-    # платится только пересинтез фраз под более жёсткий лимит длительности
-    log(f'  {PY} yandex_video_translate.py {src} --fast --max-speed 3')
-    log(f"\nПосле обоих прогонов пришлите два файла:\n  {work / 'stt_raw.txt'}\n  {work / 'tts_fit.json'}")
+    log(f"\nПосле прогона пришлите два файла:\n  {work / 'stt_raw.txt'}\n  {work / 'tts_fit.json'}")
     log(f"\nЕсли в tts_fit.json список \"phrases\" пуст — в этом фрагменте не было фраз, не помещавшихся\n"
         f"в тайминг. Возьмите другой участок: {PY} {SELF} --cut \"ваша лекция.mp4\" --start 600")
 
