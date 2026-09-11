@@ -203,6 +203,13 @@ check("TTS: 4 синтеза + пересинтез 2 фраз с MAX_DURATION 2
 check("TTS: голос alexander, PCM 24 кГц, без unsafeMode для коротких фраз",
       tts[0][3]["hints"][0] == {"voice": "alexander"} and tts[0][3]["outputAudioSpec"]["rawAudio"]
       == {"audioEncoding": "LINEAR16_PCM", "sampleRateHertz": "24000"} and "unsafeMode" not in tts[0][3])
+raw_stt = (work / "stt_raw.json").read_text(encoding="utf-8")
+check("сырой ответ распознавания сохранён дословно: 12 объектов (final, finalRefinement, eouUpdate ×4)",
+      raw_stt == recognition() and len(list(yv.iter_json(raw_stt))) == 12, len(raw_stt))
+fit = json.loads((work / "tts_fit.json").read_text(encoding="utf-8"))["phrases"]
+check("отчёт о подгонке: окно 2000 мс, лимиты 2000 и 2666 мс, звук уложен в лимит (ручной расчёт)",
+      [(f["chars"], f["window_ms"], f["requested_ms"], f["before_ms"], f["after_ms"]) for f in fit]
+      == [(30, 2000, 2000, 3000, 2000), (40, 2000, 2666, 4000, 2666)], fit)
 st = streams(out)
 a = [x for x in st if x["codec_type"] == "audio"]
 check("выход: h264 без перекодирования + 2 дорожки rus/eng", st[0]["codec_name"] == "h264" and len(a) == 2

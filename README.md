@@ -27,6 +27,10 @@ Python 3.9+, `pip install -r requirements.txt`, ffmpeg в PATH (Windows: `winget
 Все параметры: `python yandex_video_translate.py -h`. Правка перевода: исправьте `dst` в
 `<имя>_work/translation.json` и запустите ту же команду — переозвучатся только изменённые фразы.
 
+В рабочей папке остаются два файла для разбора ошибок: `stt_raw.json` — ответ распознавания
+как есть, `tts_fit.json` — отчёт о фразах, которые не помещались в тайминг (запрошенный лимит
+длительности и что вернул синтез).
+
 Все видео папки (PowerShell): `Get-ChildItem *.mp4 | ForEach-Object { python yandex_video_translate.py $_.FullName }`.
 Уже переведённые файлы пропускаются автоматически.
 

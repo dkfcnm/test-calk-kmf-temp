@@ -216,8 +216,11 @@ def stt_ready(op_id: str, key: str) -> bool:
     return bool(st.get("done"))
 
 
-def stt_result(op_id: str, key: str, src: str | None) -> tuple[list[dict], str | None]:
+def stt_result(op_id: str, key: str, src: str | None,
+               raw_path: Path | None = None) -> tuple[list[dict], str | None]:
     raw = yc_request("GET", GETREC_URL, key, params={"operation_id": op_id}).decode("utf-8")
+    if raw_path:  # дословный ответ: по нему сверяют форматы API с эмуляцией в tests/test_yandex.py
+        raw_path.write_text(raw, encoding="utf-8")
     finals, refined, langs = [], {}, {}
     for obj in iter_json(raw):
         res = obj.get("result", obj)
@@ -247,7 +250,7 @@ def stt_result(op_id: str, key: str, src: str | None) -> tuple[list[dict], str |
 
 def asr_yandex(audio: Path, key: str, src: str | None, model: str = "general",
                state: Path | None = None, source: dict | None = None, wait: bool = True,
-               poll: int = 5) -> tuple[list[dict], str | None, bool] | None:
+               poll: int = 5, raw_path: Path | None = None) -> tuple[list[dict], str | None, bool] | None:
     """Отправить звук (или продолжить сохранённую операцию — без повторной оплаты),
     дождаться и забрать результат. None — результат не готов, а ждать не велено."""
     op_id, submitted = None, False
@@ -272,7 +275,7 @@ def asr_yandex(audio: Path, key: str, src: str | None, model: str = "general",
         log(f"\r      ожидание {time.time() - t0:6.0f} с", end="")
         time.sleep(poll)
     log()
-    segs, lang = stt_result(op_id, key, src)
+    segs, lang = stt_result(op_id, key, src, raw_path)
     return segs, lang, submitted
 
 
@@ -640,7 +643,8 @@ def main(argv: list[str] | None = None) -> None:
             model = "general" if args.fast else "deferred-general"
             log("[2/5] Распознавание SpeechKit…")
             res = asr_yandex(audio, key, args.src, model, state, source,
-                             wait=args.fast or args.wait, poll=5 if args.fast else 60)
+                             wait=args.fast or args.wait, poll=5 if args.fast else 60,
+                             raw_path=work / "stt_raw.json")
             if res is None:
                 COST["stt_sec"] = duration if (load_json(state) or {}).get("created", 0) > t0 else 0.0
                 cmd = " ".join(f'"{a}"' if " " in a else a for a in (argv if argv is not None else sys.argv[1:]))
@@ -711,7 +715,7 @@ def main(argv: list[str] | None = None) -> None:
     pcms = [trim_silence(np.fromfile(f, dtype="<i2")) for f in files]
     refit = 0
     if args.fit == "speechkit":  # пересинтез фраз, не помещающихся до следующей реплики
-        jobs, idx = [], []
+        jobs, idx, fit_log = [], [], []
         for i, (it, pcm) in enumerate(zip(speak, pcms)):
             nxt = speak[i + 1]["start"] if i + 1 < len(speak) else duration
             window, dur = max(nxt - it["start"], 0.3), pcm.size / SR
@@ -719,11 +723,18 @@ def main(argv: list[str] | None = None) -> None:
                 max_ms = int(max(window, dur / args.max_speed) * 1000)
                 jobs.append((it["dst"], work / "tts" / tts_name(*base, max_ms, it["dst"]), max_ms))
                 idx.append(i)
+                fit_log.append({"phrase": i, "chars": len(it["dst"]), "window_ms": int(window * 1000),
+                                "requested_ms": max_ms, "before_ms": round(dur * 1000)})
         if jobs:
             log(f"      подгонка длительности: пересинтез {len(jobs)} фраз…")
             synth_all(jobs, key, *base)
             for i, (_, f, _) in zip(idx, jobs):
                 pcms[i] = trim_silence(np.fromfile(f, dtype="<i2"))
+            # сколько звука вернул сервис на лимит MAX_DURATION: до обрезки тишины и после
+            for rec, i, (_, f, _) in zip(fit_log, idx, jobs):
+                rec["after_ms"] = round(f.stat().st_size / 2 / SR * 1000)
+                rec["after_trimmed_ms"] = round(pcms[i].size / SR * 1000)
+            save_json(work / "tts_fit.json", {"phrases": fit_log})
             refit = len(jobs)
 
     # 5. Сборка
