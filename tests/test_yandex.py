@@ -157,10 +157,31 @@ try:
 except SystemExit as e:
     check("глоссарий >50 пар отклонён", "50" in str(e.code), e.code)
 
+print("1.1 Проверка окружения (check_env.py)")
+import io, contextlib
+import check_env as ce
+bin_dir = HERE / "bin"; bin_dir.mkdir(exist_ok=True)
+(bin_dir / ("ffmpeg" + ce.EXE)).write_text("")
+check("find_in_dirs: папка без ffprobe не подходит", ce.find_in_dirs([bin_dir]) is None)
+(bin_dir / ("ffprobe" + ce.EXE)).write_text("")
+check("find_in_dirs: папка с обеими программами найдена", ce.find_in_dirs([HERE, bin_dir]) == bin_dir)
+check("ключ из одних пробелов не считается заданным", not ce.key_ok("  ") and not ce.key_ok(None) and ce.key_ok(" k "))
+check("has_opus: неработающий ffmpeg не выдаётся за сборку с Opus", ce.has_opus(bin_dir) is False)
+ce.checks.clear(); ce.SELF = str(ROOT / "check_env.py")
+ce.find_tools = lambda: (bin_dir, False)  # программы есть, но не в PATH
+ce.has_opus = lambda tools: True
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    ce.main()
+out_env = buf.getvalue()
+check("ffmpeg вне PATH не блокирует: печатаются способ добавить и обе команды прогона",
+      "НЕТ  ffmpeg виден в PATH" in out_env and "--max-speed 3" in out_env
+      and out_env.count("yandex_video_translate.py \"") == 2 and "stt_raw.txt" in out_env,
+      [l for l in out_env.splitlines() if "PATH" in l])
+
 print("2. Контрольная точка --check")
 REQS.clear(); OP_POLLS["n"] = 0
 yv.COST.update(stt_sec=0.0, tr_chars=0, tts_units=0)
-import io, contextlib
 buf = io.StringIO()
 with contextlib.redirect_stdout(buf):
     yv.main(["--check"])
