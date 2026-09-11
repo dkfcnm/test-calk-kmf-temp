@@ -1,0 +1,7 @@
+# yandex_video_translate.py (основная программа)
+requests
+numpy
+# опционально: локальное распознавание --asr whisper
+# faster-whisper
+# video_translate.py (бесплатная версия v1: Google + Edge) дополнительно требует:
+# faster-whisper edge-tts deep-translator
