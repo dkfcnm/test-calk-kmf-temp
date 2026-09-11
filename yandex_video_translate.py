@@ -220,7 +220,7 @@ def stt_result(op_id: str, key: str, src: str | None,
                raw_path: Path | None = None) -> tuple[list[dict], str | None]:
     raw = yc_request("GET", GETREC_URL, key, params={"operation_id": op_id}).decode("utf-8")
     if raw_path:  # дословный ответ: по нему сверяют форматы API с эмуляцией в tests/test_yandex.py
-        raw_path.write_text(raw, encoding="utf-8")
+        raw_path.write_bytes(raw.encode("utf-8"))  # байтами: текстовая запись портит концы строк в Windows
     finals, refined, langs = [], {}, {}
     for obj in iter_json(raw):
         res = obj.get("result", obj)
@@ -644,7 +644,7 @@ def main(argv: list[str] | None = None) -> None:
             log("[2/5] Распознавание SpeechKit…")
             res = asr_yandex(audio, key, args.src, model, state, source,
                              wait=args.fast or args.wait, poll=5 if args.fast else 60,
-                             raw_path=work / "stt_raw.json")
+                             raw_path=work / "stt_raw.txt")
             if res is None:
                 COST["stt_sec"] = duration if (load_json(state) or {}).get("created", 0) > t0 else 0.0
                 cmd = " ".join(f'"{a}"' if " " in a else a for a in (argv if argv is not None else sys.argv[1:]))
@@ -715,27 +715,27 @@ def main(argv: list[str] | None = None) -> None:
     pcms = [trim_silence(np.fromfile(f, dtype="<i2")) for f in files]
     refit = 0
     if args.fit == "speechkit":  # пересинтез фраз, не помещающихся до следующей реплики
-        jobs, idx, fit_log = [], [], []
+        jobs, fit_log = [], []
         for i, (it, pcm) in enumerate(zip(speak, pcms)):
             nxt = speak[i + 1]["start"] if i + 1 < len(speak) else duration
             window, dur = max(nxt - it["start"], 0.3), pcm.size / SR
             if dur > window * 1.02 and len(it["dst"]) <= TTS_LIMIT:
                 max_ms = int(max(window, dur / args.max_speed) * 1000)
                 jobs.append((it["dst"], work / "tts" / tts_name(*base, max_ms, it["dst"]), max_ms))
-                idx.append(i)
-                fit_log.append({"phrase": i, "chars": len(it["dst"]), "window_ms": int(window * 1000),
-                                "requested_ms": max_ms, "before_ms": round(dur * 1000)})
+                fit_log.append({"phrase": i, "start_s": round(it["start"], 3), "chars": len(it["dst"]),
+                                "window_ms": round(window * 1000), "requested_ms": max_ms,
+                                "before_trimmed_ms": round(dur * 1000)})
         if jobs:
             log(f"      подгонка длительности: пересинтез {len(jobs)} фраз…")
             synth_all(jobs, key, *base)
-            for i, (_, f, _) in zip(idx, jobs):
-                pcms[i] = trim_silence(np.fromfile(f, dtype="<i2"))
-            # сколько звука вернул сервис на лимит MAX_DURATION: до обрезки тишины и после
-            for rec, i, (_, f, _) in zip(fit_log, idx, jobs):
-                rec["after_ms"] = round(f.stat().st_size / 2 / SR * 1000)
-                rec["after_trimmed_ms"] = round(pcms[i].size / SR * 1000)
-            save_json(work / "tts_fit.json", {"phrases": fit_log})
+            for rec, (_, f, _) in zip(fit_log, jobs):  # сколько звука вернул сервис на лимит MAX_DURATION
+                pcm = np.fromfile(f, dtype="<i2")
+                pcms[rec["phrase"]] = trim_silence(pcm)
+                rec["after_ms"] = round(pcm.size / SR * 1000)
+                rec["after_trimmed_ms"] = round(pcms[rec["phrase"]].size / SR * 1000)
             refit = len(jobs)
+        # пишется и при пустом списке: «подгонка не потребовалась» отличимо от «механизм не сработал»
+        save_json(work / "tts_fit.json", {"max_speed": args.max_speed, "phrases": fit_log})
 
     # 5. Сборка
     log("[5/5] Сведение дорожек и сборка файла…")

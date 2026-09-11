@@ -203,13 +203,16 @@ check("TTS: 4 синтеза + пересинтез 2 фраз с MAX_DURATION 2
 check("TTS: голос alexander, PCM 24 кГц, без unsafeMode для коротких фраз",
       tts[0][3]["hints"][0] == {"voice": "alexander"} and tts[0][3]["outputAudioSpec"]["rawAudio"]
       == {"audioEncoding": "LINEAR16_PCM", "sampleRateHertz": "24000"} and "unsafeMode" not in tts[0][3])
-raw_stt = (work / "stt_raw.json").read_text(encoding="utf-8")
-check("сырой ответ распознавания сохранён дословно: 12 объектов (final, finalRefinement, eouUpdate ×4)",
-      raw_stt == recognition() and len(list(yv.iter_json(raw_stt))) == 12, len(raw_stt))
-fit = json.loads((work / "tts_fit.json").read_text(encoding="utf-8"))["phrases"]
-check("отчёт о подгонке: окно 2000 мс, лимиты 2000 и 2666 мс, звук уложен в лимит (ручной расчёт)",
-      [(f["chars"], f["window_ms"], f["requested_ms"], f["before_ms"], f["after_ms"]) for f in fit]
-      == [(30, 2000, 2000, 3000, 2000), (40, 2000, 2666, 4000, 2666)], fit)
+raw_stt = (work / "stt_raw.txt").read_bytes()  # байтами: текстовое чтение скрыло бы порчу концов строк
+check("сырой ответ распознавания сохранён дословно, байт в байт", raw_stt == recognition().encode("utf-8"),
+      len(raw_stt))
+fit = json.loads((work / "tts_fit.json").read_text(encoding="utf-8"))
+ph = fit["phrases"]
+check("отчёт о подгонке: 2 фразы, окно 2000 мс, лимиты 2000 и 2666 мс (ручной расчёт), звук уложен в лимит",
+      fit["max_speed"] == 1.5
+      and [(f["phrase"], f["chars"], f["window_ms"], f["requested_ms"], f["before_trimmed_ms"]) for f in ph]
+      == [(1, 30, 2000, 2000, 3000), (2, 40, 2000, 2666, 4000)]
+      and all(0 < f["after_trimmed_ms"] <= f["after_ms"] <= f["requested_ms"] for f in ph), ph)
 st = streams(out)
 a = [x for x in st if x["codec_type"] == "audio"]
 check("выход: h264 без перекодирования + 2 дорожки rus/eng", st[0]["codec_name"] == "h264" and len(a) == 2
@@ -306,6 +309,9 @@ outw = buf.getvalue()
 check("--wait: отложенный режим, ожидание до готовности (3 опроса), видео собрано, стоимость по отложенному тарифу",
       calls(STT)[0][3]["recognition_model"]["model"] == "deferred-general" and len(calls("/operations/op-def")) == 3
       and (HERE / "wait.mp4").exists() and "распознавание 0.05" in outw, [l for l in outw.splitlines() if "стоимость" in l])
+check("--wait: сырой ответ и отчёт о подгонке сохранены и в отложенном режиме",
+      (HERE / "wait_work" / "stt_raw.txt").read_bytes() == recognition().encode("utf-8")
+      and json.loads((HERE / "wait_work" / "tts_fit.json").read_text(encoding="utf-8"))["phrases"])
 for f in (HERE / "ya.mp4", HERE / "wh.mkv"):
     REQS.clear(); buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
