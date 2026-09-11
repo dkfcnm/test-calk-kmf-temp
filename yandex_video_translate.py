@@ -238,9 +238,11 @@ def stt_result(op_id: str, key: str, src: str | None,
         text = (best.get("text") or alt.get("text") or "").strip()
         if not text:
             continue
+        # languages — распределение вероятностей по всем языкам модели, а не список найденных:
+        # считать упоминания нельзя, у каждого языка их поровну. Складываем вероятности по всем final.
         for lg in alt.get("languages") or []:
             code = lg.get("languageCode", "").split("-")[0]
-            langs[code] = langs.get(code, 0) + 1
+            langs[code] = langs.get(code, 0.0) + float(lg.get("probability") or 1)
         segs += split_long(text, int(alt.get("startTimeMs", 0)) / 1000,
                            int(alt.get("endTimeMs", 0)) / 1000, best.get("words") or alt.get("words") or [])
     segs.sort(key=lambda s: s["start"])

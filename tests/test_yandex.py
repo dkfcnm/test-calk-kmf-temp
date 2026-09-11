@@ -18,6 +18,7 @@ KEY = "test-key-yc"
 REQS, SCRIPT = [], []          # журнал запросов; заготовленные «сбойные» ответы
 TR_MAP = {"A.": "Альфа.", "B.": "Б" * 29 + ".", "C.": "В" * 39 + ".", "D.": "Гамма-дел."}
 OP_POLLS = {"n": 0}
+REAL = {"on": False}          # отдавать ответ в форматах реального прогона
 DEFER = {"ready": False, "polls": 0, "ready_after": None}
 
 
@@ -41,6 +42,70 @@ def recognition() -> str:
         parts.append({"result": {"audioCursors": cur, "finalRefinement": {"finalIndex": str(i), "normalizedText": {
             "alternatives": [dict(alt, text=norm)], "channelTag": "0"}}}})
         parts.append({"result": {"eouUpdate": {"timeMs": str(e)}}})
+    return pretty(*parts)
+
+
+def words(items) -> list[dict]:
+    return [{"text": t, "startTimeMs": str(s), "endTimeMs": str(e)} for t, s, e in items]
+
+
+# Структура реального ответа SpeechKit (прогон пользователя 11.09.2026, русская речь, model general,
+# language_code auto, literature_text true): final по ~30 с, текст без пунктуации, normalizedText
+# совпадает с final, languages — распределение вероятностей по всем языкам модели.
+REAL_LANGS = [{"languageCode": "en-EN", "probability": 0.024626730009913445},
+              {"languageCode": "fi-FI", "probability": 0.0006043262546882033},
+              {"languageCode": "nl-NL", "probability": 0.0002609856310300529},
+              {"languageCode": "fr-FR", "probability": 0.0006776833906769753},
+              {"languageCode": "ru-RU", "probability": 0.7513864040374756},
+              {"languageCode": "kk-KK", "probability": 0.221090629696846},
+              {"languageCode": "it-IT", "probability": 0.00024879490956664085}]
+REAL_FINALS = [
+    (0, 30660, [("хорошо", 160, 280), ("забудьте", 299, 700), ("про", 760, 900), ("дворец", 919, 1240),
+                ("зачатия", 1319, 2000), ("мы", 2740, 2800), ("не", 2840, 2929), ("будем", 2980, 3220),
+                ("сосредотачиваться", 3709, 4660), ("я", 5000, 5100), ("хочу", 5160, 5490),
+                ("сосредоточились", 6339, 7120), ("на", 7140, 7200), ("дворце", 7240, 7520),
+                ("жизни", 7580, 7990), ("хорошо", 11809, 12210), ("сосредоточитесь", 12719, 13980),
+                ("на", 14059, 14139), ("самом", 14219, 14480), ("дворце", 14530, 14880),
+                ("жизни", 14960, 15290), ("фан", 18320, 18550), ("инь", 18619, 18779),
+                ("итак", 20240, 20580), ("на", 20779, 20859), ("карте", 20920, 21180),
+                ("есть", 21300, 21430), ("две", 21460, 21580), ("вещи", 21619, 21960),
+                ("столкновение", 24939, 25680), ("неба", 25880, 26300), ("и", 26400, 26439),
+                ("земли", 26519, 26849), ("oven", 27240, 27400), ("off", 27480, 27619),
+                ("cash", 27680, 28039), ("столкновения", 29060, 29820), ("неба", 29890, 30179),
+                ("и", 30220, 30240), ("земли", 30279, 30660)]),
+    (30660, 60000, [("или", 33410, 33579), ("фуи", 33660, 34360), ("это", 34540, 34739),
+                    ("то", 34800, 34899), ("же", 34960, 35059), ("самое", 35160, 35540),
+                    ("что", 35600, 35760), ("столкновение", 35820, 36660), ("небо", 36760, 37079),
+                    ("и", 37120, 37140), ("земли", 37190, 37590), ("хорошо", 37660, 38110),
+                    ("итак", 38579, 38910), ("это", 38980, 39160), ("то", 39219, 39320),
+                    ("что", 39379, 39540), ("мы", 39579, 39660), ("называем", 39700, 40200),
+                    ("фан", 40260, 40540), ("инь", 40629, 40820), ("we", 42559, 42640),
+                    ("call", 42660, 42780), ("a", 42860, 42940), ("fan", 43020, 43239),
+                    ("итак", 44660, 44960), ("во", 45020, 45090), ("первых", 45160, 45440),
+                    ("дворец", 45500, 45789), ("жизни", 45879, 46239), ("это", 46320, 46539),
+                    ("обитель", 46620, 47079), ("нашей", 47100, 47420), ("души", 47480, 47980),
+                    ("представьте", 50340, 50840), ("что", 50879, 51039), ("дворец", 51100, 51480),
+                    ("жизни", 51600, 52079), ("это", 52180, 52379), ("храм", 53160, 53579),
+                    ("поэтому", 57660, 58079), ("все", 58120, 58300), ("что", 58340, 58480),
+                    ("происходит", 58539, 59039), ("с", 59059, 59079), ("дворцом", 59100, 59500),
+                    ("жизни", 59579, 59859), ("в", 59899, 59940), ("лесу", 59960, 60000)]),
+]
+
+
+def recognition_real() -> str:
+    """Ответ в том виде, в каком его вернул сервис на реальном прогоне."""
+    parts = []
+    uuid = {"uuid": "3cd39f47-d39d238a-ce9ebb90-36b45de8", "userRequestId": "undefined"}
+    for i, (s, e, ws) in enumerate(REAL_FINALS):
+        alt = {"words": words(ws), "text": " ".join(w for w, _, _ in ws), "startTimeMs": str(s),
+               "endTimeMs": str(e), "confidence": 0, "languages": REAL_LANGS}
+        cur = {"receivedDataMs": "60000", "resetTimeMs": "0", "partialTimeMs": str(e),
+               "finalTimeMs": str(e), "finalIndex": str(i), "eouTimeMs": str(s)}
+        base = {"sessionUuid": uuid, "audioCursors": cur, "responseWallTimeMs": "1830", "channelTag": "0"}
+        parts.append({"result": dict(base, final={"alternatives": [alt], "channelTag": "0"})})
+        parts.append({"result": dict(base, finalRefinement={"finalIndex": str(i), "normalizedText": {
+            "alternatives": [alt], "channelTag": "0"}})})  # нормализованный текст совпал с исходным
+        parts.append({"result": dict(base, eouUpdate={"timeMs": str(e)})})
     return pretty(*parts)
 
 
@@ -79,7 +144,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             OP_POLLS["n"] += 1
             return self.reply(200, {"id": "op-1", "done": OP_POLLS["n"] >= 2})
         if u.path == "/stt/v3/getRecognition":
-            return self.reply(200, recognition())
+            return self.reply(200, recognition_real() if REAL["on"] else recognition())
         return self.reply(404, {"message": "no route"})
 
     def do_POST(self):
@@ -178,6 +243,23 @@ check("ffmpeg вне PATH не блокирует: печатаются спос
       "НЕТ  ffmpeg виден в PATH" in out_env and "--max-speed 3" in out_env
       and out_env.count("yandex_video_translate.py \"") == 2 and "stt_raw.txt" in out_env,
       [l for l in out_env.splitlines() if "PATH" in l])
+
+print("1.2 Реальные форматы ответа SpeechKit (прогон 11.09.2026)")
+REAL["on"] = True
+raw_real = HERE / "real_raw.txt"
+segs_real, lang_real = yv.stt_result("op-1", KEY, None, raw_real)
+REAL["on"] = False
+check("язык берётся по вероятности, а не по числу упоминаний: ru 0,75 против en 0,02 и kk 0,22",
+      lang_real == "ru", lang_real)
+check("два final по 30 с разрезаны по паузам на 6 сегментов не длиннее 13 с, текст сохранён дословно",
+      len(segs_real) == 6 and max(s["end"] - s["start"] for s in segs_real) <= yv.MAX_SEG + 1.0
+      and " ".join(s["text"] for s in segs_real).startswith("хорошо забудьте про дворец зачатия мы"),
+      [(round(s["start"], 2), round(s["end"], 2)) for s in segs_real])
+check("речь без пунктуации: нормализованный текст совпал с исходным, точек нет",
+      not any(ch in " ".join(s["text"] for s in segs_real) for ch in ".,!?"),
+      " ".join(s["text"] for s in segs_real)[:60])
+check("сырой ответ реального формата сохранён дословно",
+      raw_real.read_bytes() == recognition_real().encode("utf-8"), raw_real.stat().st_size)
 
 print("2. Контрольная точка --check")
 REQS.clear(); OP_POLLS["n"] = 0
