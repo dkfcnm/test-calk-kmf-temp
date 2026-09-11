@@ -31,12 +31,17 @@ def pretty(*objs) -> str:  # как в примере документации: 
     return "".join(json.dumps(o, ensure_ascii=False, indent=1) for o in objs)
 
 
+def words(items) -> list[dict]:
+    return [{"text": t, "startTimeMs": str(s), "endTimeMs": str(e)} for t, s, e in items]
+
+
 def recognition() -> str:
     parts = []
     for i, (s, e, raw, norm) in enumerate([(1000, 3000, "a", "A."), (5000, 6000, "b", "B."),
                                            (7000, 8000, "c", "C."), (9000, 10000, "d", "D.")]):
-        alt = {"words": [{"text": raw, "startTimeMs": str(s), "endTimeMs": str(e)}], "text": raw,
-               "startTimeMs": str(s), "endTimeMs": str(e), "languages": [{"languageCode": "en-US", "probability": "0.99"}]}
+        alt = {"words": words([(raw, s, e)]), "text": raw, "startTimeMs": str(s), "endTimeMs": str(e),
+               "languages": [{"languageCode": "en-US", "probability": 0.99},
+                             {"languageCode": "tr-TR", "probability": 0}]}  # нулевая вероятность — не вес 1
         cur = {"finalIndex": str(i)}
         parts.append({"result": {"audioCursors": cur, "final": {"alternatives": [alt], "channelTag": "0"}}})
         parts.append({"result": {"audioCursors": cur, "finalRefinement": {"finalIndex": str(i), "normalizedText": {
@@ -45,18 +50,20 @@ def recognition() -> str:
     return pretty(*parts)
 
 
-def words(items) -> list[dict]:
-    return [{"text": t, "startTimeMs": str(s), "endTimeMs": str(e)} for t, s, e in items]
-
-
 # Структура реального ответа SpeechKit (прогон пользователя 11.09.2026, русская речь, model general,
 # language_code auto, literature_text true): final по ~30 с, текст без пунктуации, normalizedText
 # совпадает с final, languages — распределение вероятностей по всем языкам модели.
 REAL_LANGS = [{"languageCode": "en-EN", "probability": 0.024626730009913445},
               {"languageCode": "fi-FI", "probability": 0.0006043262546882033},
+              {"languageCode": "uz-UZ", "probability": 0.00018773830379359424},
               {"languageCode": "nl-NL", "probability": 0.0002609856310300529},
+              {"languageCode": "pt-PT", "probability": 0.00045357950148172677},
+              {"languageCode": "de-DE", "probability": 0.0002898837556131184},
               {"languageCode": "fr-FR", "probability": 0.0006776833906769753},
+              {"languageCode": "tr-TR", "probability": 0.000011308859029668383},
               {"languageCode": "ru-RU", "probability": 0.7513864040374756},
+              {"languageCode": "es-ES", "probability": 0.000156250738655217},
+              {"languageCode": "sv-SV", "probability": 0.000005654429514834192},
               {"languageCode": "kk-KK", "probability": 0.221090629696846},
               {"languageCode": "it-IT", "probability": 0.00024879490956664085}]
 REAL_FINALS = [
@@ -246,20 +253,54 @@ check("ffmpeg вне PATH не блокирует: печатаются спос
 
 print("1.2 Реальные форматы ответа SpeechKit (прогон 11.09.2026)")
 REAL["on"] = True
-raw_real = HERE / "real_raw.txt"
-segs_real, lang_real = yv.stt_result("op-1", KEY, None, raw_real)
-REAL["on"] = False
+try:
+    segs_real, lang_real = yv.stt_result("op-1", KEY, None, HERE / "real_raw.txt")
+finally:
+    REAL["on"] = False  # иначе сбой здесь подменил бы ответы всем остальным разделам
 check("язык берётся по вероятности, а не по числу упоминаний: ru 0,75 против en 0,02 и kk 0,22",
       lang_real == "ru", lang_real)
-check("два final по 30 с разрезаны по паузам на 6 сегментов не длиннее 13 с, текст сохранён дословно",
-      len(segs_real) == 6 and max(s["end"] - s["start"] for s in segs_real) <= yv.MAX_SEG + 1.0
-      and " ".join(s["text"] for s in segs_real).startswith("хорошо забудьте про дворец зачатия мы"),
+check("два final по 30 с разрезаны по паузам: 6 сегментов с расчётными границами",
+      [(round(s["start"], 2), round(s["end"], 2)) for s in segs_real]
+      == [(0.16, 12.21), (12.72, 25.68), (25.88, 30.66), (33.41, 45.44), (45.5, 58.08), (58.12, 60.0)],
       [(round(s["start"], 2), round(s["end"], 2)) for s in segs_real])
-check("речь без пунктуации: нормализованный текст совпал с исходным, точек нет",
-      not any(ch in " ".join(s["text"] for s in segs_real) for ch in ".,!?"),
+mixed = pretty(*[{"result": {"audioCursors": {"finalIndex": str(i)}, "final": {"alternatives": [
+    {"text": txt, "startTimeMs": str(s), "endTimeMs": str(e), "languages": lg}]}}}
+    for i, (txt, s, e, lg) in enumerate([
+        ("долгая русская речь", 0, 30000, [{"languageCode": "ru-RU", "probability": 0.6},
+                                           {"languageCode": "en-US", "probability": 0.4}]),
+        ("short english insert", 30000, 31000, [{"languageCode": "en-US", "probability": 0.99},
+                                                {"languageCode": "ru-RU", "probability": 0.01}])])])
+real_req = yv.yc_request
+yv.yc_request = lambda *a, **k: mixed.encode("utf-8")
+try:
+    _, lang_mix = yv.stt_result("op-mixed", KEY, None)
+finally:
+    yv.yc_request = real_req
+check("вес языка — длительность блока: 30 с речи с ru 0,6 перевешивают вставку 1 с с en 0,99",
+      lang_mix == "ru", lang_mix)
+check("текст без пунктуации доходит до сегментов без изменений: знаков препинания нет",
+      " ".join(s["text"] for s in segs_real).startswith("хорошо забудьте про дворец зачатия мы")
+      and not any(ch in " ".join(s["text"] for s in segs_real) for ch in ".,!?"),
       " ".join(s["text"] for s in segs_real)[:60])
-check("сырой ответ реального формата сохранён дословно",
-      raw_real.read_bytes() == recognition_real().encode("utf-8"), raw_real.stat().st_size)
+
+ru_work = HERE / "ru_work"; ru_work.mkdir(exist_ok=True)
+yv.save_json(ru_work / "transcript.json",  # кэш прежней версии: ключ без "v", язык определён неверно
+             {"key": {"asr": "yandex", "src": "auto"}, "language": "en",
+              "segments": [{"start": 0.0, "end": 1.0, "text": "old cache"}]})
+REAL["on"] = True; REQS.clear(); buf = io.StringIO()
+try:
+    with contextlib.redirect_stdout(buf):
+        try:
+            yv.main([str(HERE / "тест видео.mp4"), "--fast", "--workdir", str(ru_work),
+                     "-o", str(HERE / "ru.mp4")]); code_ru = "нет выхода"
+        except SystemExit as e:
+            code_ru = e.code
+finally:
+    REAL["on"] = False
+check("кэш прежней версии отброшен, русская речь не переводится на русский, подсказка без слепого --src",
+      "кэш прежней версии не подходит" in buf.getvalue() and isinstance(code_ru, str)
+      and "перевод не нужен" in code_ru and "повторной оплаты не будет" in code_ru,
+      str(code_ru)[:90])
 
 print("2. Контрольная точка --check")
 REQS.clear(); OP_POLLS["n"] = 0

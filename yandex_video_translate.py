@@ -238,13 +238,15 @@ def stt_result(op_id: str, key: str, src: str | None,
         text = (best.get("text") or alt.get("text") or "").strip()
         if not text:
             continue
+        start, end = int(alt.get("startTimeMs", 0)) / 1000, int(alt.get("endTimeMs", 0)) / 1000
         # languages — распределение вероятностей по всем языкам модели, а не список найденных:
-        # считать упоминания нельзя, у каждого языка их поровну. Складываем вероятности по всем final.
+        # считать упоминания нельзя, у каждого языка их поровну. Вес блока — его длительность,
+        # иначе короткая иноязычная вставка перевесит долгую речь.
         for lg in alt.get("languages") or []:
             code = lg.get("languageCode", "").split("-")[0]
-            langs[code] = langs.get(code, 0.0) + float(lg.get("probability") or 1)
-        segs += split_long(text, int(alt.get("startTimeMs", 0)) / 1000,
-                           int(alt.get("endTimeMs", 0)) / 1000, best.get("words") or alt.get("words") or [])
+            prob = lg.get("probability")  # ноль — это ноль: «or 1» дало бы нулевому языку вес целого
+            langs[code] = langs.get(code, 0.0) + (float(prob) if prob is not None else 1.0) * max(end - start, 0.001)
+        segs += split_long(text, start, end, best.get("words") or alt.get("words") or [])
     segs.sort(key=lambda s: s["start"])
     lang = src.split("-")[0] if src else (max(langs, key=langs.get) if langs else None)
     return segs, lang
@@ -626,7 +628,7 @@ def main(argv: list[str] | None = None) -> None:
 
     # 1–2. Распознавание (кэш: transcript.json)
     tr_path = work / "transcript.json"
-    ckey = {"asr": args.asr, "src": args.src or "auto"}
+    ckey = {"asr": args.asr, "src": args.src or "auto", "v": 2}  # v2: язык по вероятностям, а не по упоминаниям
     if args.asr == "whisper":
         ckey.update(model=args.model or "auto", device=args.device)
     cached = load_json(tr_path)
@@ -634,6 +636,8 @@ def main(argv: list[str] | None = None) -> None:
         segs, lang = cached["segments"], cached["language"]
         log(f"[1-2/5] Распознавание: из кэша (сегментов: {len(segs)}, язык: {lang})")
     else:
+        if cached:
+            log("      кэш прежней версии не подходит: в нём язык оригинала определён неверно")
         if args.asr == "yandex":
             audio, state = work / "audio.ogg", work / "stt_operation.json"
             stat = src_file.stat()
@@ -671,7 +675,9 @@ def main(argv: list[str] | None = None) -> None:
     if not segs:
         sys.exit("Речь не обнаружена.")
     if lang == args.dst and not args.src:
-        sys.exit(f"Язык видео определён как «{lang}» — перевод не нужен. Если это ошибка: --src en")
+        sys.exit(f"Язык видео определён как «{lang}» — перевод не нужен. Если распознавание ошиблось, "
+                 f"назовите язык оригинала явно, например --src en: распознавание уже в кэше, "
+                 f"повторной оплаты не будет.")
     src_tr = (args.src or lang or "").split("-")[0] or None
     if glossary and not src_tr:
         sys.exit("Для глоссария укажите язык оригинала: --src en")
@@ -680,7 +686,7 @@ def main(argv: list[str] | None = None) -> None:
     # 3. Перевод (кэш по пачкам + ручная правка translation.json)
     phrases = merge_phrases(segs)
     texts = [p["text"] for p in phrases]
-    sig = hashlib.sha1(json.dumps(["yandex-translate-v2", glossary], ensure_ascii=False)
+    sig = hashlib.sha1(json.dumps(["yandex-translate-v2", src_tr, glossary], ensure_ascii=False)
                        .encode("utf-8")).hexdigest()[:10]
     tl_path = work / "translation.json"
     cached = load_json(tl_path)
