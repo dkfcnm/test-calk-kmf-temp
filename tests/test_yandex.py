@@ -18,7 +18,7 @@ KEY = "test-key-yc"
 REQS, SCRIPT = [], []          # журнал запросов; заготовленные «сбойные» ответы
 TR_MAP = {"A.": "Альфа.", "B.": "Б" * 29 + ".", "C.": "В" * 39 + ".", "D.": "Гамма-дел."}
 OP_POLLS = {"n": 0}
-REAL = {"on": False}          # отдавать ответ в форматах реального прогона
+REAL = {"on": False, "variant": "ru"}   # отдавать ответ в форматах реального прогона
 DEFER = {"ready": False, "polls": 0, "ready_after": None}
 
 
@@ -99,13 +99,77 @@ REAL_FINALS = [
 ]
 
 
+# Второй реальный ответ: английская речь, прогон 11.09.2026. Отличия от русского — один final на
+# все 60 с (нарезка зависит от пауз, а не от фиксированного шага) и другой набор языков в languages.
+EN_LANGS = [{"languageCode": "en-EN", "probability": 0.8273805379867554},
+            {"languageCode": "fi-FI", "probability": 0.005933984648436308},
+            {"languageCode": "uz-UZ", "probability": 0.018049420788884163},
+            {"languageCode": "pl-PL", "probability": 0.006268632598221302},
+            {"languageCode": "de-DE", "probability": 0.02091861143708229},
+            {"languageCode": "fr-FR", "probability": 0.028571778908371925},
+            {"languageCode": "es-ES", "probability": 0.022529007866978645},
+            {"languageCode": "it-IT", "probability": 0.021404489874839783}]
+EN_FINALS = [
+    (0, 59800, [("all", 440, 500), ("right", 1199, 1490), ("so", 1760, 1890), ("whenever", 1939, 2379),
+                ("you", 2399, 2510), ("look", 2580, 2780), ("at", 2820, 2939), ("the", 2970, 3050),
+                ("palaces", 3139, 3540), ("itself", 3530, 3919), ("right", 3939, 4120),
+                ("there", 4160, 4259), ("are", 4279, 4339), ("different", 4380, 4710),
+                ("perspectives", 4740, 5279), ("and", 5319, 5420), ("different", 5460, 5759),
+                ("ways", 5799, 6109), ("for", 6529, 6670), ("you", 6720, 6859), ("to", 6920, 7040),
+                ("actually", 7100, 7540), ("look", 8019, 8160), ("at", 8179, 8280), ("it", 8320, 8460),
+                ("now", 8740, 8860), ("this", 8900, 9019), ("is", 9080, 9179), ("one", 9260, 9400),
+                ("of", 9440, 9519), ("the", 9540, 9620), ("ways", 9660, 9900), ("right", 10340, 10480),
+                ("you", 10510, 10599), ("try", 10660, 10790), ("to", 10840, 10940),
+                ("answer", 11000, 11139), ("this", 11160, 11300), ("out", 11340, 11500),
+                ("this", 11540, 11660), ("is", 11719, 11790), ("the", 11820, 11900),
+                ("convention", 11940, 12320), ("the", 12340, 12460), ("normal", 12540, 12880),
+                ("way", 12910, 13040), ("example", 16480, 17160), ("from", 17240, 17460),
+                ("a", 17539, 17619), ("family", 17730, 18220), ("image", 18650, 19060),
+                ("background", 19160, 19720), ("so", 19960, 20060), ("the", 20100, 20180),
+                ("policies", 20220, 20640), ("come", 20680, 20880), ("from", 20900, 21060),
+                ("of", 21100, 21199), ("course", 21240, 21580), ("all", 21660, 21830),
+                ("of", 21859, 21939), ("us", 21980, 22100), ("have", 22140, 22350),
+                ("ancestors", 22359, 23100), ("we", 23170, 23250), ("have", 23279, 23410),
+                ("grandparents", 23439, 24250), ("so", 24439, 24560), ("whoever", 24619, 25039),
+                ("that", 25080, 25210), ("comes", 25260, 25609), ("before", 25699, 26260),
+                ("us", 26320, 26660), ("is", 26960, 27119), ("always", 27199, 27699),
+                ("under", 27779, 28199), ("yepila", 28400, 28840), ("okay", 29199, 29500),
+                ("right", 29760, 29980), ("okay", 30019, 30260), ("so", 33059, 33180),
+                ("here", 33239, 33969), ("the", 34040, 34160), ("year", 34219, 34420),
+                ("pillar", 34480, 34760), ("can", 34820, 34960), ("be", 35000, 35059),
+                ("our", 35219, 35280), ("grandparents", 35360, 36180), ("but", 36320, 36440),
+                ("example", 36500, 36969), ("if", 37040, 37180), ("you", 37219, 37360),
+                ("have", 37399, 37579), ("great", 37640, 37940), ("grandparents", 38000, 38649),
+                ("they", 39040, 39149), ("also", 39200, 39500), ("fall", 39559, 39739),
+                ("under", 39800, 40100), ("the", 40140, 40440), ("epila", 40520, 40940),
+                ("if", 41350, 41450), ("you", 41520, 41600), ("have", 41640, 41739),
+                ("great", 41780, 42089), ("great", 42090, 42399), ("grandparents", 42440, 43219),
+                ("they", 43399, 43600), ("also", 43680, 44000), ("fall", 44059, 44260),
+                ("under", 44399, 44629), ("the", 44700, 44960), ("epilogue", 45320, 45820),
+                ("all", 46180, 46300), ("right", 46340, 46719), ("so", 46879, 47020),
+                ("i", 47120, 47170), ("love", 47289, 47420), ("this", 47460, 47640),
+                ("itself", 47680, 48000), ("right", 48039, 48160), ("again", 48200, 48500),
+                ("remember", 48559, 49010), ("you", 49070, 49160), ("re", 49190, 49260),
+                ("not", 49280, 49430), ("fixated", 49480, 50280), ("only", 50360, 50640),
+                ("by", 50700, 50820), ("this", 50879, 51129), ("later", 51570, 51980),
+                ("on", 52059, 52250), ("in", 52489, 52559), ("the", 52600, 52680),
+                ("way", 52719, 52910), ("you", 53320, 53566), ("can", 53606, 53786),
+                ("still", 53846, 54206), ("see", 54313, 54573), ("the", 54800, 55180),
+                ("difference", 55260, 55699), ("of", 55719, 55820), ("it", 55860, 56140),
+                ("example", 56340, 57219), ("if", 57300, 57469), ("you", 57510, 57600),
+                ("have", 57660, 57780), ("grand", 57820, 58059), ("talents", 58120, 58500),
+                ("or", 59500, 59620), ("great", 59680, 59800)]),
+]
+
+
 def recognition_real() -> str:
     """Ответ в том виде, в каком его вернул сервис на реальном прогоне."""
     parts = []
     uuid = {"uuid": "3cd39f47-d39d238a-ce9ebb90-36b45de8", "userRequestId": "undefined"}
-    for i, (s, e, ws) in enumerate(REAL_FINALS):
+    english = REAL["variant"] == "en"
+    for i, (s, e, ws) in enumerate(EN_FINALS if english else REAL_FINALS):
         alt = {"words": words(ws), "text": " ".join(w for w, _, _ in ws), "startTimeMs": str(s),
-               "endTimeMs": str(e), "confidence": 0, "languages": REAL_LANGS}
+               "endTimeMs": str(e), "confidence": 0, "languages": EN_LANGS if english else REAL_LANGS}
         cur = {"receivedDataMs": "60000", "resetTimeMs": "0", "partialTimeMs": str(e),
                "finalTimeMs": str(e), "finalIndex": str(i), "eouTimeMs": str(s)}
         base = {"sessionUuid": uuid, "audioCursors": cur, "responseWallTimeMs": "1830", "channelTag": "0"}
@@ -282,6 +346,18 @@ check("текст без пунктуации доходит до сегмент
       " ".join(s["text"] for s in segs_real).startswith("хорошо забудьте про дворец зачатия мы")
       and not any(ch in " ".join(s["text"] for s in segs_real) for ch in ".,!?"),
       " ".join(s["text"] for s in segs_real)[:60])
+
+REAL.update(on=True, variant="en")
+try:
+    segs_en, lang_en = yv.stt_result("op-1", KEY, None, HERE / "real_raw_en.txt")
+finally:
+    REAL.update(on=False, variant="ru")
+check("английская речь: язык en 0,83; один final на все 60 с — нарезка зависит от пауз, а не от шага 30 с",
+      lang_en == "en" and len(EN_FINALS) == 1 and segs_en[-1]["end"] == 59.8, (lang_en, len(segs_en)))
+en_text = " ".join(s["text"] for s in segs_en)
+check("английская речь тоже приходит без пунктуации и без заглавных, несмотря на literature_text",
+      en_text.startswith("all right so whenever you look at the palaces")
+      and not any(ch in en_text for ch in ".,!?") and en_text == en_text.lower(), en_text[:50])
 
 ru_work = HERE / "ru_work"; ru_work.mkdir(exist_ok=True)
 yv.save_json(ru_work / "transcript.json",  # кэш прежней версии: ключ без "v", язык определён неверно
