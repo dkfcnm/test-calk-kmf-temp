@@ -16,6 +16,8 @@
 ## Установка
 Python 3.9+, `pip install -r requirements.txt`, ffmpeg в PATH (Windows: `winget install Gyan.FFmpeg`).
 
+Проверка готовности: `python check_env.py` — покажет, чего не хватает (Python, пакеты, ffmpeg с кодеком Opus, ключ) и что выполнить. `python check_env.py --install` ставит ffmpeg через winget, `python check_env.py --cut "лекция.mp4"` режет минутный фрагмент для пробы.
+
 ## Запуск
 | Команда | Что делает |
 |---|---|
